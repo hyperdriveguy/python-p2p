@@ -1,6 +1,6 @@
 # Overview
 
-This is a text adventure game written in Python meant to have a heavy emphasis on multiplayer play.
+This is a text adventure game written in Python that has a heavy emphasis on multiplayer play.
 This is meant to be an exercise for me to learn about peer-to-peer networking.
 
 {Provide a description the networking program that you wrote. Describe how to use your software.  If you did Client/Server, then you will need to describe how to start both.}
