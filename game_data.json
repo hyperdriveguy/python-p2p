@@ -1,0 +1,17 @@
+{
+	"start_location": "living_room",
+	"locations": {
+		"living_room": {
+			"description": "You are in the living room of a cozy house.",
+			"neighbors": ["kitchen", "garden"]
+		},
+		"kitchen": {
+			"description": "You are in the kitchen, the smell of fresh bread fills the air.",
+			"neighbors": ["living_room"]
+		},
+		"garden": {
+			"description": "You are in a beautiful garden, the sun is shining and birds are singing.",
+			"neighbors": ["living_room"]
+		}
+	}
+}
