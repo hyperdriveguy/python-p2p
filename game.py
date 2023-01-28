@@ -32,6 +32,7 @@ def get_machine_ip():
 
 class P2PNode:
     def __init__(self, host, port):
+        self.stop = False
         self.host = host
         self.port = port
         self.ip = get_machine_ip()
@@ -47,7 +48,7 @@ class P2PNode:
     def listen(self):
         self.tcpsock.listen()
         print(f"Listening for incoming connections on {self.host}:{TCP_PORT}")
-        while True:
+        while not self.stop:
             client, addr = self.tcpsock.accept()
             client.send("Welcome to the P2P network!".encode())
             connection_thread = threading.Thread(target=self.handle_connection, args=(client, addr))
@@ -55,7 +56,7 @@ class P2PNode:
 
     def udp_listen(self):
         self.udpsock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, socket.inet_aton(MULTICAST_ADDR) + socket.inet_aton("0.0.0.0"))
-        while True:
+        while not self.stop:
             data, sender = self.udpsock.recvfrom(1024)
             sender_addr, sender_port = sender
             if sender_addr != self.ip:
@@ -67,16 +68,16 @@ class P2PNode:
                 print(f"Ignoring broadcast message from localhost {sender_addr}")
 
     def connect(self, host, port):
+        connect_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            self.tcpsock.connect((host, port))
+            connect_sock.connect((host, port))
             print(f"Connected to {host}:{port}")
-            self.tcpsock.send(f"Hello from {self.host}:{self.port}".encode())
-            while True:
-                data = self.tcpsock.recv(1024).decode()
+            connect_sock.send(f"Hello from {self.host}:{self.port}".encode())
+            while not self.stop:
+                data = connect_sock.recv(1024).decode()
                 if not data:
                     break
                 print(f"Received: {data}")
-            self.tcpsock.close()
         except ConnectionRefusedError as e:
             print(f"Error: {e}")
             # remove the peer from the games_list
@@ -85,13 +86,15 @@ class P2PNode:
             if self.games_list:
                 peer = random.choice(self.games_list)
                 print(f"Connecting to peer at {peer[0]}:{peer[1]}")
-                self.connect(peer[0], peer[1])
+                self.connect(peer, TCP_PORT)
+        finally:
+            connect_sock.close()
 
 
     def broadcast(self):
         group = (MULTICAST_ADDR, BROADCAST_PORT)
         self.udpsock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
-        while True:
+        while not self.stop:
             self.udpsock.sendto("game_online".encode(), group)
             print(f"Broadcasting to {group}")
             sleep(5) # wait 5 seconds before trying again
@@ -99,21 +102,25 @@ class P2PNode:
 
 
 if __name__ == '__main__':
-    node = P2PNode("0.0.0.0", BROADCAST_PORT)
-    tcp_listen_thread = threading.Thread(target=node.listen)
-    broadcast_thread = threading.Thread(target=node.broadcast)
-    listen_thread = threading.Thread(target=node.udp_listen)
-    tcp_listen_thread.start()
-    broadcast_thread.start()
-    listen_thread.start()
-    while True:
-        if node.games_list:
-            peer = random.choice(node.games_list)
-            print(f"Connecting to peer at {peer}:{TCP_PORT}")
-            node.connect(peer, TCP_PORT)
-            # break
-        sleep(1)
-    tcp_listen_thread.join()
-    broadcast_thread.join()
-    listen_thread.join()
+    try:
+        node = P2PNode("0.0.0.0", BROADCAST_PORT)
+        tcp_listen_thread = threading.Thread(target=node.listen)
+        broadcast_thread = threading.Thread(target=node.broadcast)
+        listen_thread = threading.Thread(target=node.udp_listen)
+        tcp_listen_thread.start()
+        broadcast_thread.start()
+        listen_thread.start()
+        while True:
+            if node.games_list:
+                peer = random.choice(node.games_list)
+                print(f"Connecting to peer at {peer}:{TCP_PORT}")
+                node.connect(peer, TCP_PORT)
+                # break
+            sleep(1)
+    except KeyboardInterrupt:
+        node.stop = True
+        print('Stopping local node')
+        tcp_listen_thread.join()
+        broadcast_thread.join()
+        listen_thread.join()
 
