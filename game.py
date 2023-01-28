@@ -6,7 +6,7 @@ import ipaddress
 from time import sleep
 
 MULTICAST_ADDR = '224.0.0.10'
-BROADCAST_PORT = 44000
+BROADCAST_PORT = 4000
 TCP_PORT = BROADCAST_PORT + 1
 
 def load_game_data(file_path):
