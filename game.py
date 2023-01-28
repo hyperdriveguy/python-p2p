@@ -76,12 +76,12 @@ class P2PNode:
         except OSError as e:
             print(f"Error: {e}")
             # remove the peer from the games_list
-            self.games_list.remove((host, port))
+            self.games_list.remove(host)
             # try connecting to another peer
-            if self.games_list:
-                peer = random.choice(self.games_list)
-                print(f"Connecting to peer at {peer[0]}:{peer[1]}")
-                self.connect(peer[0], peer[1])
+            # if self.games_list:
+            #     peer = random.choice(self.games_list)
+            #     print(f"Connecting to peer at {peer[0]}:{peer[1]}")
+            #     self.connect(peer[0], peer[1])
 
     def broadcast(self):
         group = (MULTICAST_ADDR, self.port)
@@ -89,7 +89,7 @@ class P2PNode:
         while True:
             self.udpsock.sendto("game_online".encode(), group)
             print(f"Broadcasting to {group}")
-            sleep(15) # wait 5 seconds before trying again
+            sleep(5) # wait 5 seconds before trying again
 
 
 
@@ -102,8 +102,8 @@ if __name__ == '__main__':
     while True:
         if node.games_list:
             peer = random.choice(node.games_list)
-            print(f"Connecting to peer at {peer[0]}:{GAME_PORT}")
-            node.connect(peer[0], GAME_PORT)
+            print(f"Connecting to peer at {peer}:{GAME_PORT}")
+            node.connect(peer, GAME_PORT)
             # break
         sleep(1)
 
