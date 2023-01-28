@@ -7,7 +7,8 @@ from time import sleep
 
 MULTICAST_ADDR = '224.0.0.10'
 BROADCAST_PORT = 4000
-TCP_PORT = BROADCAST_PORT + 1
+TCP_LISTEN_PORT = BROADCAST_PORT + 1
+TCP_CONNECT_PORT = BROADCAST_PORT + 2
 
 def load_game_data(file_path):
     with open(file_path, 'r') as f:
@@ -47,7 +48,7 @@ class P2PNode:
 
     def listen(self):
         self.tcpsock.listen()
-        print(f"Listening for incoming connections on {self.host}:{TCP_PORT}")
+        print(f"Listening for incoming connections on {self.host}:{TCP_LISTEN_PORT}")
         while not self.stop:
             client, addr = self.tcpsock.accept()
             client.send("Welcome to the P2P network!".encode())
@@ -86,7 +87,7 @@ class P2PNode:
         #     if self.games_list:
         #         peer = random.choice(self.games_list)
         #         print(f"Connecting to peer at {peer[0]}:{peer[1]}")
-        #         self.connect(peer, TCP_PORT)
+        #         self.connect(peer, TCP_CONNECT_PORT)
         # finally:
         #     connect_sock.close()
 
@@ -113,14 +114,14 @@ if __name__ == '__main__':
         while True:
             if node.games_list:
                 peer = random.choice(node.games_list)
-                print(f"Connecting to peer at {peer}:{TCP_PORT}")
-                node.connect(peer, TCP_PORT)
+                print(f"Connecting to peer at {peer}:{TCP_CONNECT_PORT}")
+                node.connect(peer, TCP_CONNECT_PORT)
                 # break
             sleep(1)
     except KeyboardInterrupt:
         node.stop = True
         print('Stopping local node')
+        tcp_listen_thread.join()
         broadcast_thread.join()
         listen_thread.join()
-        tcp_listen_thread.join()
 
