@@ -103,6 +103,7 @@ if __name__ == '__main__':
     tcp_listen_thread = threading.Thread(target=node.listen)
     broadcast_thread = threading.Thread(target=node.broadcast)
     listen_thread = threading.Thread(target=node.udp_listen)
+    tcp_listen_thread.start()
     broadcast_thread.start()
     listen_thread.start()
     while True:
@@ -112,4 +113,7 @@ if __name__ == '__main__':
             node.connect(peer, TCP_PORT)
             # break
         sleep(1)
+    tcp_listen_thread.join()
+    broadcast_thread.join()
+    listen_thread.join()
 
