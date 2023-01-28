@@ -78,7 +78,6 @@ class P2PNode:
                 print(f"Received: {data}")
             self.tcpsock.close()
         except ConnectionRefusedError as e:
-        # except OSError as e:
             print(f"Error: {e}")
             # remove the peer from the games_list
             self.games_list.remove((host))
@@ -101,6 +100,7 @@ class P2PNode:
 
 if __name__ == '__main__':
     node = P2PNode("0.0.0.0", BROADCAST_PORT)
+    tcp_listen_thread = threading.Thread(target=node.listen)
     broadcast_thread = threading.Thread(target=node.broadcast)
     listen_thread = threading.Thread(target=node.udp_listen)
     broadcast_thread.start()
