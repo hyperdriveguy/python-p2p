@@ -5,7 +5,8 @@ import random
 import ipaddress
 from time import sleep
 
-MULTICAST_ADDR = '224.0.1.191'
+MULTICAST_ADDR = '224.0.0.10'
+GAME_PORT = 44001
 
 def load_game_data(file_path):
     with open(file_path, 'r') as f:
@@ -54,7 +55,7 @@ class P2PNode:
             data, sender = self.udpsock.recvfrom(1024)
             sender_addr, sender_port = sender
             if sender_addr != self.ip:
-                print(f"Received broadcast from {addr}")
+                print(f"Received broadcast from {sender_addr}")
                 print(sender_addr, 'reports:', data)
                 if "game_online" in data.decode():
                     self.games_list.append(sender_addr)
@@ -93,7 +94,7 @@ class P2PNode:
 
 
 if __name__ == '__main__':
-    node = P2PNode("0.0.0.0", 44001)
+    node = P2PNode("0.0.0.0", GAME_PORT)
     broadcast_thread = threading.Thread(target=node.broadcast)
     listen_thread = threading.Thread(target=node.udp_listen)
     broadcast_thread.start()
@@ -101,8 +102,8 @@ if __name__ == '__main__':
     while True:
         if node.games_list:
             peer = random.choice(node.games_list)
-            print(f"Connecting to peer at {peer[0]}:{peer[1]}")
-            node.connect(peer[0], peer[1])
+            print(f"Connecting to peer at {peer[0]}:{GAME_PORT}")
+            node.connect(peer[0], GAME_PORT)
             # break
         sleep(1)
 
