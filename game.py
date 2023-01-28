@@ -105,7 +105,7 @@ if __name__ == '__main__':
         if node.games_list:
             peer = random.choice(node.games_list)
             print(f"Connecting to peer at {peer}:{TCP_PORT}")
-            node.connect(peer, GAME_PORT)
+            node.connect(peer, TCP_PORT)
             # break
         sleep(1)
 
