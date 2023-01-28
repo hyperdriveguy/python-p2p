@@ -5,6 +5,8 @@ import random
 import ipaddress
 from time import sleep
 
+MULTICAST_ADDR = '224.0.1.191'
+
 def load_game_data(file_path):
     with open(file_path, 'r') as f:
         game_data = json.load(f)
@@ -47,14 +49,17 @@ class P2PNode:
             connection_thread.start()
 
     def udp_listen(self):
-        self.udpsock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, socket.inet_aton("224.0.0.1") + socket.inet_aton("0.0.0.0"))
+        self.udpsock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, socket.inet_aton(MULTICAST_ADDR) + socket.inet_aton("0.0.0.0"))
         while True:
-            data, addr = self.udpsock.recvfrom(1024)
-            print(f"Received broadcast from {addr}")
-            print(addr, 'reports:', data)
-            if "game_online" in data.decode():
-                self.games_list.append(addr)
-
+            data, sender = self.udpsock.recvfrom(1024)
+            sender_addr, sender_port = sender
+            if sender_addr != self.ip:
+                print(f"Received broadcast from {addr}")
+                print(sender_addr, 'reports:', data)
+                if "game_online" in data.decode():
+                    self.games_list.append(sender_addr)
+            else:
+                print(f"Ignoring broadcast message from localhost {sender_addr}")
 
     def connect(self, host, port):
         try:
@@ -78,17 +83,17 @@ class P2PNode:
                 self.connect(peer[0], peer[1])
 
     def broadcast(self):
-        group = ('224.0.0.1', self.port)
+        group = (MULTICAST_ADDR, self.port)
         self.udpsock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
         while True:
             self.udpsock.sendto("game_online".encode(), group)
             print(f"Broadcasting to {group}")
-            sleep(5) # wait 5 seconds before trying again
+            sleep(15) # wait 5 seconds before trying again
 
 
 
 if __name__ == '__main__':
-    node = P2PNode("0.0.0.0", 44000)
+    node = P2PNode("0.0.0.0", 44001)
     broadcast_thread = threading.Thread(target=node.broadcast)
     listen_thread = threading.Thread(target=node.udp_listen)
     broadcast_thread.start()
