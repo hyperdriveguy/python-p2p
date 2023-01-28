@@ -36,10 +36,13 @@ class P2PNode:
         self.port = port
         self.ip = get_machine_ip()
         self.tcpsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.tcpsock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.tcpsock.bind((self.host, self.port))
         self.udpsock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.udpsock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.udpsock.bind(('0.0.0.0', BROADCAST_PORT))
         self.games_list = []
+
 
     def listen(self):
         self.tcpsock.listen()
@@ -64,26 +67,27 @@ class P2PNode:
                 print(f"Ignoring broadcast message from localhost {sender_addr}")
 
     def connect(self, host, port):
-        # try:
-        self.tcpsock.connect((host, port))
-        print(f"Connected to {host}:{port}")
-        self.tcpsock.send(f"Hello from {self.host}:{self.port}".encode())
-        while True:
-            data = self.tcpsock.recv(1024).decode()
-            if not data:
-                break
-            print(f"Received: {data}")
-        self.tcpsock.close()
-        # except ConnectionRefusedError as e:
+        try:
+            self.tcpsock.connect((host, port))
+            print(f"Connected to {host}:{port}")
+            self.tcpsock.send(f"Hello from {self.host}:{self.port}".encode())
+            while True:
+                data = self.tcpsock.recv(1024).decode()
+                if not data:
+                    break
+                print(f"Received: {data}")
+            self.tcpsock.close()
+        except ConnectionRefusedError as e:
         # except OSError as e:
-            # print(f"Error: {e}")
+            print(f"Error: {e}")
             # remove the peer from the games_list
-            # self.games_list.remove((host)
+            self.games_list.remove((host))
             # try connecting to another peer
-            # if self.games_list:
-            #     peer = random.choice(self.games_list)
-            #     print(f"Connecting to peer at {peer[0]}:{peer[1]}")
-            #     self.connect(peer[0], peer[1])
+            if self.games_list:
+                peer = random.choice(self.games_list)
+                print(f"Connecting to peer at {peer[0]}:{peer[1]}")
+                self.connect(peer[0], peer[1])
+
 
     def broadcast(self):
         group = (MULTICAST_ADDR, BROADCAST_PORT)
