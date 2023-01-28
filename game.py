@@ -69,26 +69,26 @@ class P2PNode:
 
     def connect(self, host, port):
         connect_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            connect_sock.connect((host, port))
-            print(f"Connected to {host}:{port}")
-            connect_sock.send(f"Hello from {self.host}:{self.port}".encode())
-            while not self.stop:
-                data = connect_sock.recv(1024).decode()
-                if not data:
-                    break
-                print(f"Received: {data}")
-        except ConnectionRefusedError as e:
-            print(f"Error: {e}")
-            # remove the peer from the games_list
-            self.games_list.remove((host))
-            # try connecting to another peer
-            if self.games_list:
-                peer = random.choice(self.games_list)
-                print(f"Connecting to peer at {peer[0]}:{peer[1]}")
-                self.connect(peer, TCP_PORT)
-        finally:
-            connect_sock.close()
+        # try:
+        connect_sock.connect((host, port))
+        print(f"Connected to {host}:{port}")
+        connect_sock.send(f"Hello from {self.host}:{self.port}".encode())
+        while not self.stop:
+            data = connect_sock.recv(1024).decode()
+            if not data:
+                break
+            print(f"Received: {data}")
+        # except ConnectionRefusedError as e:
+        #     print(f"Error: {e}")
+        #     # remove the peer from the games_list
+        #     self.games_list.remove((host))
+        #     # try connecting to another peer
+        #     if self.games_list:
+        #         peer = random.choice(self.games_list)
+        #         print(f"Connecting to peer at {peer[0]}:{peer[1]}")
+        #         self.connect(peer, TCP_PORT)
+        # finally:
+        #     connect_sock.close()
 
 
     def broadcast(self):
@@ -120,7 +120,7 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         node.stop = True
         print('Stopping local node')
-        tcp_listen_thread.join()
         broadcast_thread.join()
         listen_thread.join()
+        tcp_listen_thread.join()
 
