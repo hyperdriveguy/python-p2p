@@ -39,7 +39,7 @@ class P2PNode:
         self.ip = get_machine_ip()
         self.tcpsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.tcpsock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.tcpsock.bind((self.host, self.port))
+        self.tcpsock.bind((self.ip, self.port))
         self.udpsock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.udpsock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.udpsock.bind(('0.0.0.0', BROADCAST_PORT))
@@ -48,7 +48,7 @@ class P2PNode:
 
     def listen(self):
         self.tcpsock.listen()
-        print(f"Listening for incoming connections on {self.host}:{TCP_LISTEN_PORT}")
+        print(f"Listening for incoming connections on {self.ip}:{TCP_LISTEN_PORT}")
         while not self.stop:
             client, addr = self.tcpsock.accept()
             client.send("Welcome to the P2P network!".encode())
