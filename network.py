@@ -74,8 +74,13 @@ class LocalNode:
         self.max_served = num_in
         self.max_connect = num_out
         self.peers = PeerNotifier(self.local_ip)
+        self.available_port = 49153
         self.served_connections = []
         self.client_connections = []
 
-    def
+    def new_serv(self, port):
+        tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        tcp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        tcp_sock.bind(('0.0.0.0', port))
+        tcp_sock.listen()
 
