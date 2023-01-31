@@ -28,8 +28,9 @@ class PeerNotifier:
         self.local_ip = local_ip
         self.cast_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.notifs = queue.Queue(10)
-        self.start_listen()
         self._configure_cast_sock()
+        self.cast_listen_thread = None
+        self.start_listen()
 
     def _configure_cast_sock(self):
         self.cast_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -42,7 +43,21 @@ class PeerNotifier:
         print('Multicasting:', message)
 
     def start_listen(self):
-        self.cast_listen_thread = threading.Thread(target=self._listen_cast)
+
+        def _listen_cast():
+            while True:
+                data, sender = self.cast_sock.recvfrom(1024)
+                sender_addr, sender_port = sender
+                if sender_addr == self.local_ip:
+                    if data == 'stop':
+                        print('Received stop signal')
+                        break
+                    print(f'Ignoring broadcast message from {sender_addr}')
+                else:
+                    print(sender_addr, 'multicast:', data)
+                    self.notifs.put((data, sender_addr, sender_port))
+
+        self.cast_listen_thread = threading.Thread(target=_listen_cast)
         self.cast_listen_thread.start()
 
     def stop_listen(self):
@@ -53,20 +68,8 @@ class PeerNotifier:
     def close(self):
         if self.cast_listen_thread.is_alive():
             self.stop_listen()
+        self.notifs.put('stop')
         self.cast_sock.close()
-
-    def _listen_cast(self):
-        while True:
-            data, sender = self.cast_sock.recvfrom(1024)
-            sender_addr, sender_port = sender
-            if sender_addr == self.local_ip:
-                if data == 'stop':
-                    print('Received stop signal')
-                    break
-                print(f'Ignoring broadcast message from {sender_addr}')
-            else:
-                print(sender_addr, 'multicast:', data)
-                self.notifs.put((data, sender_addr, sender_port))
 
 
 class LocalNode:
@@ -80,6 +83,15 @@ class LocalNode:
         self.served_connections = []
         self.client_connections = []
         self.remote_action_q = queue.Queue(10)
+
+    def _notif_handler(self):
+
+        def _make_callbacks():
+            while True:
+                new_notif = self.peers.notifs.get()
+                if new_notif == 'stop': break
+                command, send_addr, send_port = new_notif
+
 
     def new_serv(self, port):
         tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -123,3 +135,5 @@ class LocalNode:
                 self.conn_lock.release()
             except ConnectionRefusedError as e:
                 print('Error:', e, ', aborting connection')
+
+
