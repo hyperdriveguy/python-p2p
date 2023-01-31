@@ -1,6 +1,7 @@
 import socket
 import threading
 import queue
+import random
 
 MULTICAST_ADDR = '224.0.0.10'
 MULTICAST_PORT = 49152
@@ -95,10 +96,30 @@ class LocalNode:
             self.served_connections.append(client_conn)
             self.conn_lock.release()
             with client_conn:
-                print(client_addr, 'connected to port', port)
+                print(client_addr, 'connected to server port', port)
                 while True:
                     data = conn.recv(1024)
                     if not data: break
                     self.remote_action_q.put(data)
                 self.conn_lock.acquire()
                 self.served_connections.remove(client_conn)
+
+    def new_client(self, addr, port):
+        client_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        with client_sock:
+            try:
+                client_sock.connect((addr, port))
+                print('Client connected to', addr, 'port', port)
+                self.conn_lock.acquire()
+                self.client_connections.append(client_sock)
+                self.conn_lock.release()
+                while True:
+                    data = connect_sock.recv(1024)
+                    if not data: break
+                    self.remote_action_q.put(data)
+                self.conn_lock.acquire()
+                self.client_connections.remove(client_sock)
+                self.conn_lock.release()
+            except ConnectionRefusedError as e:
+                print('Error:', e, ', aborting connection')
