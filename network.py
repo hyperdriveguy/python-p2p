@@ -74,66 +74,134 @@ class PeerNotifier:
 
 class LocalNode:
     def __init__(self, num_in, num_out):
+        # Get the local IP through the default device
         self.local_ip = get_machine_ip()
+        # Max connections
         self.max_served = num_in
         self.max_connect = num_out
+        # UDP/Peer searching
         self.peers = PeerNotifier(self.local_ip)
-        self.conn_lock = threading.Lock()
+        self.peer_aware = True
+        # Thread locks
+        self.serv_conn_lock = threading.Lock()
+        self.client_conn_lock = threading.Lock()
+        self.ports_lock = threading.Lock()
+        # Thread containers
+        self.peer_notif_cb_thread = None
+        self.serv_manager_thread = None
+        # Store ports to broadcast availability
         self.available_ports = set()
-        self.served_connections = []
-        self.client_connections = []
-        self.remote_action_q = queue.Queue(10)
+        # Store ports used across the servers and clients
+        self.used_ports = set()
+        # Store IPs and connected sockets
+        self.served_connections = dict()
+        self.client_connections = dict()
+        # Queues for event handling
+        self.remote_action_q = queue.Queue(num_in + num_out)
 
-    def _notif_handler(self):
+    def _peer_notif_handler(self):
 
         def _make_callbacks():
+            client_threads = []
             while True:
                 new_notif = self.peers.notifs.get()
                 if new_notif == 'stop': break
-                command, send_addr, send_port = new_notif
+                if self.peer_aware:
+                    command, send_addr, send_port = new_notif
+                    command_op, command_args = command.split(' ')
+                    if command_op == 'available':
+                        if not type(args) == str: continue
+                        t = threading.Thread(target=self.new_client, args=(send_addr, command_args))
+                        t.start()
+                        client_threads.append(t)
+            for t in client_threads:
+                t.join()
 
+        self.peer_notif_cb_thread = threading.Thread(target=_make_callbacks)
+        self.peer_notif_cb_thread.start()
+
+    def _stop_peer_notif(self):
+        self.peers.close()
+        self.peer_notif_cb_thread.join()
+
+    def _generate_port(self):
+        # Generate range from just above MULTICAST_PORT to maximum port range
+        random_port = random.randint(MULTICAST_PORT + 1, 65535)
+        self.ports_lock.acquire()
+        while random_port in self.available_ports or random_port in self.used_ports:
+            random_port = random.randint(MULTICAST_PORT + 1, 65535)
+        self.ports_lock.release()
+        return random_port
+
+    def manage_servers(self):
+
+        def _manage_threads():
+            server_threads = []
+            while True:
+                if len(self.available_ports) + len(self.served_connections) < self.max_served:
+                    new_port = self._generate_port()
+                    t = threading.Thread(target=self.new_serv, args=(new_port,))
+                    t.start()
+                    server_threads.append(t)
+                # TODO: break condition
+            for t in server_threads:
+                t.join()
 
     def new_serv(self, port):
         tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         tcp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         tcp_sock.bind(('0.0.0.0', port))
         tcp_sock.listen()
-        self.conn_lock.acquire()
+        self.ports_lock.acquire()
         while True:
             self.available_ports.add(port)
-            self.conn_lock.release()
+            self.ports_lock.release()
             client_conn, client_addr = tcp_sock.accept()
-            self.conn_lock.acquire()
+            self.ports_lock.acquire()
             self.available_ports.remove(port)
-            self.served_connections.append(client_conn)
-            self.conn_lock.release()
+            self.used_ports.add(port)
+            self.ports_lock.release()
+            self.serv_conn_lock.acquire()
+            self.served_connections[client_addr] = client_conn
+            self.serv_conn_lock.release()
             with client_conn:
                 print(client_addr, 'connected to server port', port)
                 while True:
-                    data = conn.recv(1024)
+                    data = conn.recvfrom(1024)
                     if not data: break
                     self.remote_action_q.put(data)
-                self.conn_lock.acquire()
-                self.served_connections.remove(client_conn)
+                self.serv_conn_lock.acquire()
+                self.served_connections.pop(client_addr)
+                self.serv_conn_lock.release()
+            self.ports_lock.acquire()
+            self.used_ports.remove(port)
 
     def new_client(self, addr, port):
         client_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         client_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         with client_sock:
             try:
+                self.ports_lock.acquire()
+                self.used_ports.add(port)
+                self.ports_lock.release()
                 client_sock.connect((addr, port))
                 print('Client connected to', addr, 'port', port)
-                self.conn_lock.acquire()
-                self.client_connections.append(client_sock)
-                self.conn_lock.release()
+                self.client_conn_lock.acquire()
+                self.client_connections[addr] = client_sock
+                self.client_conn_lock.release()
                 while True:
-                    data = connect_sock.recv(1024)
+                    data = connect_sock.recvfrom(1024)
                     if not data: break
                     self.remote_action_q.put(data)
-                self.conn_lock.acquire()
-                self.client_connections.remove(client_sock)
-                self.conn_lock.release()
             except ConnectionRefusedError as e:
                 print('Error:', e, ', aborting connection')
+            finally:
+                self.client_conn_lock.acquire()
+                self.client_connections.pop(addr)
+                self.client_conn_lock.release()
+                self.ports_lock.acquire()
+                self.used_ports.remove(port)
+                self.ports_lock.release()
+
 
 
