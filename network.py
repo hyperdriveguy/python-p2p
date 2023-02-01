@@ -2,12 +2,15 @@ import socket
 import threading
 import queue
 import random
+from time import sleep
 
 MULTICAST_ADDR = '224.0.0.10'
 MULTICAST_PORT = 49152
 
 MAX_INCOMING = 5
 MAX_OUTGOING = 5
+
+ADVERTISE_SERV_DELAY = 15
 
 # IP helper function - https://stackoverflow.com/a/28950776
 def get_machine_ip():
@@ -36,7 +39,7 @@ class PeerNotifier:
         self.cast_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.cast_sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
         self.cast_sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, socket.inet_aton(MULTICAST_ADDR) + socket.inet_aton("0.0.0.0"))
-        self.cast_sock.bind(('0.0.0.0', BROADCAST_PORT))
+        self.cast_sock.bind(('0.0.0.0', MULTICAST_PORT))
 
     def cast(self, message):
         self.cast_sock.sendto(message.encode(), (MULTICAST_ADDR, MULTICAST_PORT))
@@ -49,10 +52,13 @@ class PeerNotifier:
                 data, sender = self.cast_sock.recvfrom(1024)
                 sender_addr, sender_port = sender
                 if sender_addr == self.local_ip:
-                    if data == 'stop':
+                    print(sender_addr, self.local_ip, data)
+                    if data == b'stop':
                         print('Received stop signal')
+                        self.notifs.put('stop')
                         break
-                    print(f'Ignoring broadcast message from {sender_addr}')
+                    else:
+                        print(f'Ignoring broadcast message from {sender_addr}')
                 else:
                     print(sender_addr, 'multicast:', data)
                     self.notifs.put((data, sender_addr, sender_port))
@@ -86,6 +92,8 @@ class LocalNode:
         self.serv_conn_lock = threading.Lock()
         self.client_conn_lock = threading.Lock()
         self.ports_lock = threading.Lock()
+        # Signals (semaphores)
+        self.server_manager_signal = threading.Semaphore(1)
         # Thread containers
         self.peer_notif_cb_thread = None
         self.serv_manager_thread = None
@@ -99,6 +107,10 @@ class LocalNode:
         # Queues for event handling
         self.remote_action_q = queue.Queue(num_in + num_out)
 
+        # Start handlers
+        self._peer_notif_handler()
+        self._manage_servers()
+
     def _peer_notif_handler(self):
 
         def _make_callbacks():
@@ -111,6 +123,7 @@ class LocalNode:
                     command_op, command_args = command.split(' ')
                     if command_op == 'available':
                         if not type(args) == str: continue
+                        if send_addr in self.served_connections.keys() or send_addr in self.client_connections.keys(): continue
                         t = threading.Thread(target=self.new_client, args=(send_addr, command_args))
                         t.start()
                         client_threads.append(t)
@@ -133,19 +146,38 @@ class LocalNode:
         self.ports_lock.release()
         return random_port
 
-    def manage_servers(self):
+    def _manage_servers(self):
 
         def _manage_threads():
             server_threads = []
-            while True:
-                if len(self.available_ports) + len(self.served_connections) < self.max_served:
-                    new_port = self._generate_port()
-                    t = threading.Thread(target=self.new_serv, args=(new_port,))
-                    t.start()
-                    server_threads.append(t)
-                # TODO: break condition
+            while len(self.available_ports) + len(self.served_connections) < self.max_served:
+                new_port = self._generate_port()
+                t = threading.Thread(target=self.new_serv, args=(new_port,))
+                t.start()
+                server_threads.append(t)
+                self.server_manager_signal.acquire()
             for t in server_threads:
                 t.join()
+
+        def _advertise_servers():
+            while True:
+                self.ports_lock.acquire()
+                for port in self.available_ports:
+                    self.peers.cast(f'available {port}')
+                self.ports_lock.release()
+                sleep(ADVERTISE_SERV_DELAY)
+
+        self.serv_manager_thread = threading.Thread(target=_manage_threads)
+        advertise_thread = threading.Thread(target=_advertise_servers, daemon=True)
+        self.serv_manager_thread.start()
+        advertise_thread.start()
+
+    def _stop_server_manager(self):
+        self.serv_manager_thread.join()
+
+    def close(self):
+        self._stop_peer_notif()
+        self._stop_server_manager()
 
     def new_serv(self, port):
         tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -164,6 +196,7 @@ class LocalNode:
             self.serv_conn_lock.acquire()
             self.served_connections[client_addr] = client_conn
             self.serv_conn_lock.release()
+            self.server_manager_signal.release()
             with client_conn:
                 print(client_addr, 'connected to server port', port)
                 while True:
@@ -204,4 +237,8 @@ class LocalNode:
                 self.ports_lock.release()
 
 
+if __name__ == '__main__':
+    local_node = LocalNode(MAX_INCOMING, MAX_OUTGOING)
+    sleep(5)
+    local_node.close()
 
