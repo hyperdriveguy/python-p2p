@@ -286,10 +286,16 @@ class LocalNode:
 
 if __name__ == '__main__':
     local_node = LocalNode(MAX_INCOMING, MAX_OUTGOING)
-    sleep
-    while True:
-        local_node.data_spread('your mom')
-        sleep(random.randint(1, 5))
+    sleep(20)
+    def bruh():
+        while True:
+            local_node.data_spread('your mom')
+            sleep(random.randint(1, 5))
+
+    bruh_t = threading.Thread(target=bruh)
+    bruh_t.start()
+    for _ in range(500):
         print('Data:', local_node.local_data_queue.get())
+    bruh_t.join()
     local_node.close()
 
