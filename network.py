@@ -130,7 +130,11 @@ class LocalNode:
                     command_op, command_args = command.split(' ')
                     if command_op == 'available':
                         if not type(command_args) == str: continue
+                        self.serv_conn_lock.acquire()
+                        self.client_conn_lock.acquire()
                         if send_addr in self.served_connections.keys() or send_addr in self.client_connections.keys(): continue
+                        self.serv_conn_lock.release()
+                        self.client_conn_lock.release()
                         t = threading.Thread(target=self.new_client, args=(send_addr, int(command_args)))
                         t.start()
                         client_threads.append(t)
