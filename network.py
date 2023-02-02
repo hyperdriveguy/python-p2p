@@ -131,7 +131,7 @@ class LocalNode:
                     if command_op == 'available':
                         if not type(command_args) == str: continue
                         if send_addr in self.served_connections.keys() or send_addr in self.client_connections.keys(): continue
-                        t = threading.Thread(target=self.new_client, args=(send_addr, command_args))
+                        t = threading.Thread(target=self.new_client, args=(send_addr, int(command_args)))
                         t.start()
                         client_threads.append(t)
             for t in client_threads:
@@ -246,7 +246,7 @@ class LocalNode:
             self.ports_lock.acquire()
             self.used_ports.pop(port)
 
-    def new_client(self, addr, port):
+    def new_client(self, addr, port:int):
         client_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         client_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         with client_sock:
