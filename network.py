@@ -199,7 +199,7 @@ class LocalNode:
             while True:
                 origin_addr, new_data = self.data_propogate_queue.get()
                 if origin_addr is None and new_data == 'stop': break
-                self.data_spread(data, origin_addr)
+                self.data_spread(new_data, origin_addr)
         
         self.propogate_data_thread = threading.Thread(target=_queue_listener)
         self.propogate_data_thread.start()
@@ -237,7 +237,7 @@ class LocalNode:
             with client_conn:
                 print(client_addr, 'connected to server port', port)
                 while True:
-                    data = conn.recvfrom(1024)
+                    data = client_conn.recvfrom(1024)
                     if not data: break
                     self.data_propogate_queue.put((client_addr, data))
                 self.serv_conn_lock.acquire()
