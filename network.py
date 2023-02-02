@@ -43,8 +43,11 @@ class PeerNotifier:
         self.cast_sock.bind(('0.0.0.0', MULTICAST_PORT))
 
     def cast(self, message):
-        self.cast_sock.sendto(message.encode(), (MULTICAST_ADDR, MULTICAST_PORT))
-        print('Multicasting:', message)
+        try:
+            self.cast_sock.sendto(message.encode(), (MULTICAST_ADDR, MULTICAST_PORT))
+            print('Multicasting:', message)
+        except OSError as e:
+            print('Error, unable to cast message:', e)
 
     def start_listen(self):
 
@@ -100,6 +103,7 @@ class LocalNode:
         self.peer_notif_cb_thread = None
         self.serv_manager_thread = None
         self.propogate_data_thread = None
+        self.advertise_thread = None
         # Store ports to broadcast availability
         self.available_ports = dict()
         # Store ports used across the servers and clients
@@ -144,6 +148,11 @@ class LocalNode:
         self.peer_notif_cb_thread = threading.Thread(target=_make_callbacks)
         self.peer_notif_cb_thread.start()
 
+    def _shutdown_sockets(self):
+        for conn in chain(self.available_ports.values(), self.used_ports.values()):
+            conn.shutdown(socket.SHUT_RDWR)
+            conn.close()
+
     def _stop_peer_notif(self):
         self.peers.close()
         self.peer_notif_cb_thread.join()
@@ -172,24 +181,25 @@ class LocalNode:
                 t.join()
 
         def _advertise_servers():
-            while not self.stop_advertiser:
+            while True:
                 self.ports_lock.acquire()
+                print(self.stop_advertiser)
                 for port in self.available_ports.keys():
                     self.peers.cast(f'available {port}')
                 self.ports_lock.release()
                 sleep(ADVERTISE_SERV_DELAY)
+                if self.stop_advertiser: break
 
         self.serv_manager_thread = threading.Thread(target=_manage_threads)
-        advertise_thread = threading.Thread(target=_advertise_servers, daemon=True)
+        self.advertise_thread = threading.Thread(target=_advertise_servers)
         self.serv_manager_thread.start()
-        advertise_thread.start()
+        self.advertise_thread.start()
 
     def _stop_server_manager(self):
         self.stop_serv = True
-        for conn in chain(self.available_ports.values(), self.used_ports.values()):
-            conn.shutdown(socket.SHUT_RDWR)
-            conn.close()
+        self.stop_advertiser = True
         self.server_manager_signal.release()
+        self.advertise_thread.join()
         self.serv_manager_thread.join()
 
     def data_spread(self, data, origin=None):
@@ -218,6 +228,7 @@ class LocalNode:
         self.propogate_data_thread.join()
 
     def close(self):
+        self._shutdown_sockets()
         self._stop_peer_notif()
         self._stop_server_manager()
         self._stop_data_propogator()
@@ -228,14 +239,16 @@ class LocalNode:
         tcp_sock.bind(('0.0.0.0', port))
         tcp_sock.listen()
         self.ports_lock.acquire()
-        while not self.stop_serv:
+        while True:
             self.available_ports[port] = tcp_sock
             self.ports_lock.release()
             try:
                 client_conn, client_full_addr = tcp_sock.accept()
                 client_addr, client_port = client_full_addr
-            except OSError:
-                continue
+            except OSError as e:
+                print('Error accepting client:', e)
+                tcp_sock.close()
+                break
             self.server_manager_signal.release()
             self.ports_lock.acquire()
             self.available_ports.pop(port)
@@ -270,7 +283,11 @@ class LocalNode:
                 self.client_connections[addr] = client_sock
                 self.client_conn_lock.release()
                 while True:
-                    data = client_sock.recvfrom(1024)
+                    try:
+                        data = client_sock.recvfrom(1024)
+                    except OSError as e:
+                        print('Error recieving data:', e)
+                        break
                     if not data: break
                     self.data_propogate_queue.put((addr, data))
             except ConnectionRefusedError as e:
@@ -286,16 +303,16 @@ class LocalNode:
 
 if __name__ == '__main__':
     local_node = LocalNode(MAX_INCOMING, MAX_OUTGOING)
-    sleep(20)
-    def bruh():
-        while True:
-            local_node.data_spread('your mom')
-            sleep(random.randint(1, 5))
-
-    bruh_t = threading.Thread(target=bruh)
-    bruh_t.start()
-    for _ in range(500):
-        print('Data:', local_node.local_data_queue.get())
-    bruh_t.join()
+    sleep(5)
+    # def bruh():
+    #     while True:
+    #         local_node.data_spread('your mom')
+    #         sleep(random.randint(1, 5))
+    #
+    # bruh_t = threading.Thread(target=bruh)
+    # bruh_t.start()
+    # for _ in range(500):
+    #     print('Data:', local_node.local_data_queue.get())
+    # bruh_t.join()
     local_node.close()
 
