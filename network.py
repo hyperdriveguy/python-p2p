@@ -132,9 +132,7 @@ class LocalNode:
                         if not type(command_args) == str: continue
                         self.serv_conn_lock.acquire()
                         self.client_conn_lock.acquire()
-                        if send_addr in self.served_connections.keys() or send_addr in self.client_connections.keys():
-                            print(f'\nCURRENT CONNECTIONS: \n\tServed: {self.served_connections.keys()}\n\tClient: {self.client_connections.keys()}\n\n')
-                            continue
+                        if send_addr in self.served_connections.keys() or send_addr in self.client_connections.keys(): continue
                         self.serv_conn_lock.release()
                         self.client_conn_lock.release()
                         t = threading.Thread(target=self.new_client, args=(send_addr, int(command_args)))
@@ -229,7 +227,7 @@ class LocalNode:
             self.available_ports[port] = tcp_sock
             self.ports_lock.release()
             try:
-                client_conn, client_addr, client_port = tcp_sock.accept()
+                client_conn, client_addr = tcp_sock.accept()
             except OSError:
                 continue
             self.server_manager_signal.release()
