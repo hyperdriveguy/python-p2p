@@ -195,7 +195,10 @@ class LocalNode:
     def data_spread(self, data, origin=None):
         for addr, conn in chain(self.served_connections.items(), self.client_connections.items()):
             if addr == origin: continue
-            conn.send(data.encode())
+            try:
+                conn.send(data.encode())
+            except BrokenPipeError:
+                pass
     
     def _propogate_data(self):
 
@@ -203,7 +206,9 @@ class LocalNode:
             while True:
                 origin_addr, new_data = self.data_propogate_queue.get()
                 if origin_addr is None and new_data == 'stop': break
+                if new_data[0] == b'': continue
                 self.data_spread(new_data, origin_addr)
+                self.local_data_queue.put(new_data)
         
         self.propogate_data_thread = threading.Thread(target=_queue_listener)
         self.propogate_data_thread.start()
@@ -227,7 +232,8 @@ class LocalNode:
             self.available_ports[port] = tcp_sock
             self.ports_lock.release()
             try:
-                client_conn, client_addr = tcp_sock.accept()
+                client_conn, client_full_addr = tcp_sock.accept()
+                client_addr, client_port = client_full_addr
             except OSError:
                 continue
             self.server_manager_signal.release()
@@ -280,6 +286,10 @@ class LocalNode:
 
 if __name__ == '__main__':
     local_node = LocalNode(MAX_INCOMING, MAX_OUTGOING)
-    sleep(240)
+    sleep
+    while True:
+        local_node.data_spread('your mom')
+        sleep(random.randint(1, 5))
+        print('Data:', local_node.local_data_queue.get())
     local_node.close()
 
