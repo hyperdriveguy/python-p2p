@@ -3,6 +3,7 @@ import threading
 import queue
 import random
 from time import sleep
+from itertools import chain
 
 MULTICAST_ADDR = '224.0.0.10'
 MULTICAST_PORT = 49152
@@ -10,7 +11,7 @@ MULTICAST_PORT = 49152
 MAX_INCOMING = 5
 MAX_OUTGOING = 5
 
-ADVERTISE_SERV_DELAY = 15
+ADVERTISE_SERV_DELAY = 3
 
 # IP helper function - https://stackoverflow.com/a/28950776
 def get_machine_ip():
@@ -52,7 +53,6 @@ class PeerNotifier:
                 data, sender = self.cast_sock.recvfrom(1024)
                 sender_addr, sender_port = sender
                 if sender_addr == self.local_ip:
-                    print(sender_addr, self.local_ip, data)
                     if data == b'stop':
                         print('Received stop signal')
                         self.notifs.put('stop')
@@ -61,7 +61,7 @@ class PeerNotifier:
                         print(f'Ignoring broadcast message from {sender_addr}')
                 else:
                     print(sender_addr, 'multicast:', data)
-                    self.notifs.put((data, sender_addr, sender_port))
+                    self.notifs.put((data.decode(), sender_addr, sender_port))
 
         self.cast_listen_thread = threading.Thread(target=_listen_cast)
         self.cast_listen_thread.start()
@@ -92,24 +92,29 @@ class LocalNode:
         self.serv_conn_lock = threading.Lock()
         self.client_conn_lock = threading.Lock()
         self.ports_lock = threading.Lock()
-        # Signals (semaphores)
+        # Signals
         self.server_manager_signal = threading.Semaphore(1)
+        self.stop_advertiser = False
+        self.stop_serv = False
         # Thread containers
         self.peer_notif_cb_thread = None
         self.serv_manager_thread = None
+        self.propogate_data_thread = None
         # Store ports to broadcast availability
-        self.available_ports = set()
+        self.available_ports = dict()
         # Store ports used across the servers and clients
-        self.used_ports = set()
+        self.used_ports = dict()
         # Store IPs and connected sockets
         self.served_connections = dict()
         self.client_connections = dict()
-        # Queues for event handling
-        self.remote_action_q = queue.Queue(num_in + num_out)
+        # Queues for event handling on local node and sending to other nodes
+        self.data_propogate_queue = queue.Queue(num_in + num_out)
+        self.local_data_queue = queue.Queue((num_in + num_out)*2)
 
         # Start handlers
         self._peer_notif_handler()
         self._manage_servers()
+        self._propogate_data()
 
     def _peer_notif_handler(self):
 
@@ -117,8 +122,10 @@ class LocalNode:
             client_threads = []
             while True:
                 new_notif = self.peers.notifs.get()
-                if new_notif == 'stop': break
-                if self.peer_aware:
+                if new_notif == 'stop':
+                    self.stop_advertiser = True
+                    break
+                elif self.peer_aware:
                     command, send_addr, send_port = new_notif
                     command_op, command_args = command.split(' ')
                     if command_op == 'available':
@@ -141,7 +148,7 @@ class LocalNode:
         # Generate range from just above MULTICAST_PORT to maximum port range
         random_port = random.randint(MULTICAST_PORT + 1, 65535)
         self.ports_lock.acquire()
-        while random_port in self.available_ports or random_port in self.used_ports:
+        while random_port in self.available_ports.keys() or random_port in self.used_ports.keys():
             random_port = random.randint(MULTICAST_PORT + 1, 65535)
         self.ports_lock.release()
         return random_port
@@ -151,18 +158,19 @@ class LocalNode:
         def _manage_threads():
             server_threads = []
             while len(self.available_ports) + len(self.served_connections) < self.max_served:
+                self.server_manager_signal.acquire()
+                if self.stop_serv: break
                 new_port = self._generate_port()
                 t = threading.Thread(target=self.new_serv, args=(new_port,))
                 t.start()
                 server_threads.append(t)
-                self.server_manager_signal.acquire()
             for t in server_threads:
                 t.join()
 
         def _advertise_servers():
-            while True:
+            while not self.stop_advertiser:
                 self.ports_lock.acquire()
-                for port in self.available_ports:
+                for port in self.available_ports.keys():
                     self.peers.cast(f'available {port}')
                 self.ports_lock.release()
                 sleep(ADVERTISE_SERV_DELAY)
@@ -173,11 +181,37 @@ class LocalNode:
         advertise_thread.start()
 
     def _stop_server_manager(self):
+        self.stop_serv = True
+        for conn in chain(self.available_ports.values(), self.used_ports.values()):
+            conn.shutdown(socket.SHUT_RDWR)
+            conn.close()
+        self.server_manager_signal.release()
         self.serv_manager_thread.join()
+
+    def data_spread(self, data, origin=None):
+        for addr, conn in chain(self.served_connections.items(), self.client_connections.items()):
+            if addr == origin: continue
+            conn.send(data.encode())
+    
+    def _propogate_data(self):
+
+        def _queue_listener():
+            while True:
+                origin_addr, new_data = self.data_propogate_queue.get()
+                if origin_addr is None and new_data == 'stop': break
+                self.data_spread(data, origin_addr)
+        
+        self.propogate_data_thread = threading.Thread(target=_queue_listener)
+        self.propogate_data_thread.start()
+    
+    def _stop_data_propogator(self):
+        self.data_propogate_queue.put((None, 'stop'))
+        self.propogate_data_thread.join()
 
     def close(self):
         self._stop_peer_notif()
         self._stop_server_manager()
+        self._stop_data_propogator()
 
     def new_serv(self, port):
         tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -185,29 +219,32 @@ class LocalNode:
         tcp_sock.bind(('0.0.0.0', port))
         tcp_sock.listen()
         self.ports_lock.acquire()
-        while True:
-            self.available_ports.add(port)
+        while not self.stop_serv:
+            self.available_ports[port] = tcp_sock
             self.ports_lock.release()
-            client_conn, client_addr = tcp_sock.accept()
+            try:
+                client_conn, client_addr = tcp_sock.accept()
+            except OSError:
+                continue
+            self.server_manager_signal.release()
             self.ports_lock.acquire()
-            self.available_ports.remove(port)
-            self.used_ports.add(port)
+            self.available_ports.pop(port)
+            self.used_ports[port] = tcp_sock
             self.ports_lock.release()
             self.serv_conn_lock.acquire()
             self.served_connections[client_addr] = client_conn
             self.serv_conn_lock.release()
-            self.server_manager_signal.release()
             with client_conn:
                 print(client_addr, 'connected to server port', port)
                 while True:
                     data = conn.recvfrom(1024)
                     if not data: break
-                    self.remote_action_q.put(data)
+                    self.data_propogate_queue.put((client_addr, data))
                 self.serv_conn_lock.acquire()
                 self.served_connections.pop(client_addr)
                 self.serv_conn_lock.release()
             self.ports_lock.acquire()
-            self.used_ports.remove(port)
+            self.used_ports.pop(port)
 
     def new_client(self, addr, port):
         client_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -215,7 +252,7 @@ class LocalNode:
         with client_sock:
             try:
                 self.ports_lock.acquire()
-                self.used_ports.add(port)
+                self.used_ports[port] = client_sock
                 self.ports_lock.release()
                 client_sock.connect((addr, port))
                 print('Client connected to', addr, 'port', port)
@@ -223,9 +260,9 @@ class LocalNode:
                 self.client_connections[addr] = client_sock
                 self.client_conn_lock.release()
                 while True:
-                    data = connect_sock.recvfrom(1024)
+                    data = client_sock.recvfrom(1024)
                     if not data: break
-                    self.remote_action_q.put(data)
+                    self.data_propogate_queue.put((addr, data))
             except ConnectionRefusedError as e:
                 print('Error:', e, ', aborting connection')
             finally:
@@ -233,12 +270,12 @@ class LocalNode:
                 self.client_connections.pop(addr)
                 self.client_conn_lock.release()
                 self.ports_lock.acquire()
-                self.used_ports.remove(port)
+                self.used_ports.pop(port)
                 self.ports_lock.release()
 
 
 if __name__ == '__main__':
     local_node = LocalNode(MAX_INCOMING, MAX_OUTGOING)
-    sleep(5)
+    sleep(240)
     local_node.close()
 
