@@ -78,6 +78,7 @@ class PeerNotifier:
         if self.cast_listen_thread.is_alive():
             self.stop_listen()
         self.notifs.put('stop')
+        self.notifs.put('stop')
         self.cast_sock.close()
 
 
