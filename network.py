@@ -129,7 +129,7 @@ class LocalNode:
                     command, send_addr, send_port = new_notif
                     command_op, command_args = command.split(' ')
                     if command_op == 'available':
-                        if not type(args) == str: continue
+                        if not type(command_args) == str: continue
                         if send_addr in self.served_connections.keys() or send_addr in self.client_connections.keys(): continue
                         t = threading.Thread(target=self.new_client, args=(send_addr, command_args))
                         t.start()
