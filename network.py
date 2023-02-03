@@ -55,7 +55,7 @@ class PeerNotifier:
                 if sender_addr == self.local_ip:
                     if data == b'stop':
                         print('Received stop signal')
-                        self.notifs.put('stop')
+                        self.notifs.put(('stop',))
                         return
                     else:
                         print(f'Ignoring broadcast message from {sender_addr}')
@@ -74,8 +74,6 @@ class PeerNotifier:
     def close(self):
         if self.cast_listen_thread.is_alive():
             self.stop_listen()
-        # self.notifs.put('stop')
-        # self.notifs.put('stop')
         self.cast_sock.close()
 
 
@@ -126,7 +124,7 @@ class LocalNode:
                 print('Waiting for next notification')
                 new_notif = self.peers.notifs.get()
                 print('New notification:', new_notif)
-                if new_notif == 'stop':
+                if new_notif == ('stop',):
                     print('Peer notifier handler recieved stop')
                     break
                 elif self.peer_aware:
@@ -135,15 +133,17 @@ class LocalNode:
                     if command_op == 'available':
                         if not type(command_args) == str: continue
                         self.serv_conn_lock.acquire()
-                        self.client_conn_lock.acquire()
-                        if send_addr in self.served_connections.keys() or send_addr in self.client_connections.keys(): continue
+                        if send_addr in self.served_connections.keys(): continue
                         self.serv_conn_lock.release()
+                        self.client_conn_lock.acquire()
+                        if send_addr in self.client_connections.keys(): continue
                         self.client_conn_lock.release()
                         t = threading.Thread(target=self.new_client, args=(send_addr, int(command_args)))
                         t.start()
                         client_threads.append(t)
             print('Joining client connection threads')
             for t in client_threads:
+                if not t.is_alive(): continue
                 print(client_threads)
                 t.join()
 
@@ -151,13 +151,26 @@ class LocalNode:
         self.peer_notif_cb_thread.start()
 
     def _shutdown_sockets(self):
+        self.ports_lock.acquire()
+        print('Connecting to available ports for shutdown')
+        for port in self.available_ports:
+            socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect((self.local_ip, port))
         for conn in chain(self.available_ports.values(), self.used_ports.values()):
-            conn.shutdown(socket.SHUT_RDWR)
+            try:
+                conn.shutdown(socket.SHUT_RDWR)
+            except OSError as e:
+                if e.args[0] == 107: continue
             conn.close()
+        self.ports_lock.release()
 
     def _stop_peer_notif(self):
+        print('Close multicast socket')
         self.peers.close()
-        self.peer_notif_cb_thread.join()
+        print(self.peers.notifs.qsize())
+        print('Start join peer notifier thread')
+        self.peer_notif_cb_thread.join(3)
+        if self.peer_notif_cb_thread.is_alive():
+            print('Peer notifier thread still alive after 3 seconds.')
     
     def _manage_advertisers(self):
         def _advertise_servers():
@@ -198,7 +211,10 @@ class LocalNode:
                 t = threading.Thread(target=self.new_serv, args=(new_port,))
                 t.start()
                 server_threads.append(t)
+            print('Joining server connection threads')
             for t in server_threads:
+                print(server_threads)
+                if not t.is_alive(): continue
                 t.join()
 
         self.serv_manager_thread = threading.Thread(target=_manage_threads)
@@ -209,6 +225,7 @@ class LocalNode:
         self.stop_serv = True
         print('Set advertiser stop')
         self.stop_advertiser = True
+        self.peer_aware = False
         self.server_manager_signal.release()
         print('Start join advertise thread')
         self.advertise_thread.join()
@@ -236,7 +253,9 @@ class LocalNode:
         self.propogate_data_thread.start()
     
     def _stop_data_propogator(self):
+        print('Send signal to stop data propogation')
         self.data_propogate_queue.put((None, 'stop'))
+        print('Start join data propogation thread')
         self.propogate_data_thread.join()
 
     def close(self):
@@ -275,12 +294,16 @@ class LocalNode:
                 while True:
                     data = client_conn.recvfrom(1024)
                     if not data: break
+                    if data[0] == b'':
+                        print('Received empty bitstring from client peer, closing connection.')
+                        break
                     self.data_propogate_queue.put((client_addr, data))
-                self.serv_conn_lock.acquire()
-                self.served_connections.pop(client_addr)
-                self.serv_conn_lock.release()
+            self.serv_conn_lock.acquire()
+            self.served_connections.pop(client_addr)
+            self.serv_conn_lock.release()
             self.ports_lock.acquire()
             self.used_ports.pop(port)
+        print('Reached server stop,', port)
 
     def new_client(self, addr, port:int):
         client_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -296,37 +319,35 @@ class LocalNode:
                 self.client_connections[addr] = client_sock
                 self.client_conn_lock.release()
                 while True:
-                    try:
-                        data = client_sock.recvfrom(1024)
-                    except OSError as e:
-                        if e.args[0] == 9: break
-                        print('Error recieving data on client:', e)
-                        break
+                    data = client_sock.recvfrom(1024)
                     if not data: break
+                    if data[0] == b'':
+                        print('Received empty bitstring from serving peer, closing connection.')
+                        break
                     self.data_propogate_queue.put((addr, data))
             except ConnectionRefusedError as e:
                 print('Error:', e, ', aborting client connection')
             finally:
+                print('Start client cleanup')
                 self.client_conn_lock.acquire()
                 self.client_connections.pop(addr)
                 self.client_conn_lock.release()
                 self.ports_lock.acquire()
                 self.used_ports.pop(port)
                 self.ports_lock.release()
+                print('Reached client stop')
 
 
 if __name__ == '__main__':
     local_node = LocalNode(MAX_INCOMING, MAX_OUTGOING)
-    sleep(15)
-    # def bruh():
-    #     while True:
-    #         local_node.data_spread('your mom')
-    #         sleep(random.randint(1, 5))
-    #
-    # bruh_t = threading.Thread(target=bruh)
-    # bruh_t.start()
-    # for _ in range(500):
-    #     print('Data:', local_node.local_data_queue.get())
-    # bruh_t.join()
+    def bruh():
+        while True:
+            local_node.data_spread('your mom')
+            sleep(random.randint(1, 5))
+    bruh_t = threading.Thread(target=bruh)
+    bruh_t.start()
+    for _ in range(500):
+        print('Data:', local_node.local_data_queue.get())
+    bruh_t.join()
     local_node.close()
 
