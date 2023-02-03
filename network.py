@@ -340,14 +340,10 @@ class LocalNode:
 
 if __name__ == '__main__':
     local_node = LocalNode(MAX_INCOMING, MAX_OUTGOING)
-    def bruh():
-        while True:
-            local_node.data_spread('your mom')
-            sleep(random.randint(1, 5))
-    bruh_t = threading.Thread(target=bruh)
-    bruh_t.start()
-    for _ in range(500):
-        print('Data:', local_node.local_data_queue.get())
-    bruh_t.join()
+    _msg_getter= lamda: print(local_node.local_data_queue.get())
+    msg_t = threading.Thread(target=_msg_getter, daemon=True)
+    mst.start()
+    while True:
+        local_node.data_spread(input('What data would you like to spread?'))
     local_node.close()
 
