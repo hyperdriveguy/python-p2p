@@ -1,11 +1,10 @@
 # Overview
 
-This is a text adventure game written in Python that has a heavy emphasis on multiplayer play.
-This is meant to be an exercise for me to learn about peer-to-peer networking.
+This is a python peer-to-peer networking stack using sockets. It is not recommended for use in end products due to its wide port range it requires to operate.
 
-{Provide a description the networking program that you wrote. Describe how to use your software.  If you did Client/Server, then you will need to describe how to start both.}
+Start the program by running `network.py`. Each node will scan for peers on the local network and attempt to connect to available peers. User input will be distributed across the network. Peers may recieve redundant messages. **The concurrency via threading on the program is broken, so exiting must be done via keyboard interrupt (Ctrl+C).**
 
-{Describe your purpose for writing this software.}
+This is an exercise that I've used to learn how socketed connections work over TCP and UDP.
 
 {Provide a link to your YouTube demonstration.  It should be a 4-5 minute demo of the software running (you will need to show two pieces of software running and communicating with each other) and a walkthrough of the code.}
 
@@ -13,27 +12,53 @@ This is meant to be an exercise for me to learn about peer-to-peer networking.
 
 # Network Communication
 
-{Describe the architecture that you used (client/server or peer-to-peer)}
+## Handling Peers in Various Scenarios
 
-{Identify if you are using TCP or UDP and what port numbers are used.}
+### No Peers on the Network
+When a peer attempts to connect and is the first on the network,
+no other peers should be available. In this case, the peer should
+exclusively listen for TCP connections and make no attempts to connect to other peers.
+The peer should then start using multicast to indicate its availability for connections.
 
-{Identify the format of messages being sent between the client and server or the messages sent between two peers.}
+### Peer is Available
+When a peer receives a multicast message with the available peers on the network,
+including the TCP port that the peer is listening on, it can determine the network load to aid in balancing.
+The serving peer then opens a new socket to listen for new connections.
+Meanwhile, the connecting peer should also open a new socket and broadcast its availability for connections.
+
+### Peer Shuts Down
+If a peer shuts down, whether due to program closure or an error,
+the network should be self-healing. All peers with connections to the shutting down peer should reattempt to connect to other peers.
+Since each peer should have a fallback connection, this should not totally disconnect peers from the network.
+
+### Nodes Maxed Out Connections
+This should not occur unless there are "siphoners" that only connect to other peers without serving new connections.
+To prevent this, there should be a 1:1 or many-to-one ratio of incoming to outgoing connections for any given peer.
+Peers should also not connect using multiple TCP ports to the same peer.
+
+
+The program runs the UDP multicast on port 49152 and TCP client and server connections between ports 49152 and 65535.
+Make sure to adjust your firewall settings accordingly.
+
+## Format of Message exchange
+Messages sent over the network are plain bytestrings representing ascii characters.
 
 # Development Environment
 
-{Describe the tools that you used to develop the software}
+Kate text editor and the CPython interpreter were used for the development environment.
+There may be quirks specific to other operating systems (Windows).
 
-{Describe the programming language that you used and any libraries.}
+The Python programming language is used with the built in `socket` and `threading` libraries, along with other built in modules.
 
 # Useful Websites
 
-{Make a list of websites that you found helpful in this project}
-* [Web Site Name](http://url.link.goes.here)
-* [Web Site Name](http://url.link.goes.here)
+Resources
+
+* [`socket` library (Python Docs)](https://docs.python.org/3/library/socket.html#module-socket)
+* [Multicasting (Wikipedia)](https://en.wikipedia.org/wiki/Multicast)
 
 # Future Work
 
-{Make a list of things that you need to fix, improve, and add in the future.}
-* Item 1
-* Item 2
-* Item 3
+* Fix deadlocks in multithreading
+* Make peer discovery more efficent
+* Make network visualizations using `matplotlib`
