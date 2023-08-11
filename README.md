@@ -6,8 +6,6 @@ Start the program by running `network.py`. Each node will scan for peers on the 
 
 This is an exercise that I've used to learn how socketed connections work over TCP and UDP.
 
-{Provide a link to your YouTube demonstration.  It should be a 4-5 minute demo of the software running (you will need to show two pieces of software running and communicating with each other) and a walkthrough of the code.}
-
 [Software Demo Video](http://youtube.link.goes.here)
 
 # Network Communication
